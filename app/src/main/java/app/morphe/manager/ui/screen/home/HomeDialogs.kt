@@ -298,7 +298,17 @@ private fun DialogHostScope.PatchFlowDialog(
                         appName = session.appName,
                     )
                     if (uri == null) {
-                        captureMessages.show(R.string.apk_capture_download_failed)
+                        // Names the reason while this is being tested. The exception's own message
+                        // says more than "it failed" ever could, and reaching an adb console is not
+                        // something to ask of whoever is holding the phone
+                        val reason = ApkCaptureDownloader.lastError
+                        if (reason.isNullOrBlank()) {
+                            captureMessages.show(R.string.apk_capture_download_failed)
+                        } else {
+                            captureMessages.show(
+                                captureContext.getString(R.string.apk_capture_download_failed_reason, reason)
+                            )
+                        }
                         return@launch
                     }
                     flow.handleApkSelection(uri)
