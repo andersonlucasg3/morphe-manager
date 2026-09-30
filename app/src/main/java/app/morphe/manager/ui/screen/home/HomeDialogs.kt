@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -280,6 +281,30 @@ private fun DialogHostScope.PatchFlowDialog(
             val bundleMetadata by homeViewModel.bundleAppMetadataFlow.collectAsStateWithLifecycle()
             val metadata = session.packageName?.let { bundleMetadata[it] }
 
+            // Opens the page in the capture WebView and feeds the file it takes back through the
+            // same intake a hand-picked APK goes through, so every check that guards a manual
+            // selection still applies to one this app fetched itself.
+            val captureContext = LocalContext.current
+            val captureMessages: UserMessages = koinInject()
+            val captureScope = rememberCoroutineScope()
+            val captureApkInApp = rememberApkDownloadCaptureAction(
+                downloadUrl = session.downloadUrl,
+                appName = session.appName,
+            ) { capture ->
+                captureScope.launch {
+                    val uri = ApkCaptureDownloader.download(
+                        context = captureContext,
+                        capture = capture,
+                        appName = session.appName,
+                    )
+                    if (uri == null) {
+                        captureMessages.show(R.string.apk_capture_download_failed)
+                        return@launch
+                    }
+                    flow.handleApkSelection(uri)
+                }
+            }
+
             DownloadInstructionsDialog(
                 appName = session.appName,
                 packageName = session.packageName,
@@ -294,6 +319,7 @@ private fun DialogHostScope.PatchFlowDialog(
                 onDismiss = flow::backFromApkSource,
                 onOpenApkDownloadHelper = apkDownloadHelpers.open,
                 onTrustApkDownloadHelpers = onTrustApkDownloadHelpers.takeIf { apkDownloadHelpers.hasUntrusted },
+                onCaptureApkInApp = captureApkInApp,
                 onContinue = flow::handleDownloadInstructionsContinue
             )
         }

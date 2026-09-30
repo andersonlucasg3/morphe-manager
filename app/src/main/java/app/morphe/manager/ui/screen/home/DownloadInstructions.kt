@@ -215,6 +215,8 @@ private fun ApkDownloadSource.instructionSteps(
  * @param onOpenApkDownloadHelper Downloads through a trusted helper app, null while none is.
  * @param onTrustApkDownloadHelpers Opens where a helper installed but not trusted yet is let in,
  * null while there is none or nowhere to open that from.
+ * @param onCaptureApkInApp Opens the page in the capture WebView, which takes the file from it
+ * and hands it to the same picker. Null while the link is not resolved enough to open.
  * @param onContinue Moves on to picking the downloaded file once the link is handed off, given how
  * to hand it off. That returns false when the link could not be passed on.
  */
@@ -231,6 +233,7 @@ internal fun DialogHostScope.DownloadInstructionsDialog(
     onDismiss: () -> Unit,
     onOpenApkDownloadHelper: (() -> Unit)? = null,
     onTrustApkDownloadHelpers: (() -> Unit)? = null,
+    onCaptureApkInApp: (() -> Unit)? = null,
     onContinue: (handOff: (String) -> Boolean) -> Unit
 ) {
     val uriHandler = LocalUriHandler.current
@@ -267,6 +270,16 @@ internal fun DialogHostScope.DownloadInstructionsDialog(
         footer = {
             AppDialogActions(
                 actions = listOfNotNull(
+                    // Leading, because it is the one that finishes the job inside Morphe: every
+                    // action after it hands the user off to a browser or to another app
+                    if (onCaptureApkInApp != null) {
+                        DialogAction(
+                            text = stringResource(R.string.home_download_instructions_in_app),
+                            onClick = { onCaptureApkInApp.invoke() },
+                            icon = MaterialSymbols.Rounded.Download,
+                            enabled = !resolving
+                        )
+                    } else null,
                     DialogAction(
                         text = continueText,
                         onClick = openLink,
