@@ -35,15 +35,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream releases
+      # checkout fetches only the branch it was asked for, so the fork branch has to be
+      # named here or it is not in the working tree for the rebase below
+      - name: Fetch the fork branch and upstream releases
         run: |
+          git fetch origin feat/in-app-apk-download
           git remote add upstream https://github.com/MorpheApp/morphe-manager.git
           git fetch upstream main --tags
 
       - name: Rebase the fork branch onto the latest release
         id: rebase
         run: |
-          BRANCH=feat/in-app-apk-download
+          BRANCH=origin/feat/in-app-apk-download
           BASE=upstream/main
 
           BEHIND=$(git rev-list --count "$BRANCH..$BASE")
@@ -55,7 +58,9 @@ jobs:
             exit 0
           fi
 
-          git checkout "$BRANCH"
+          # --onto rather than a plain rebase: the branch is pinned to whatever the
+          # release was when it was last moved, and everything above that is ours
+          git checkout -B feat/in-app-apk-download "$BRANCH"
 
           # A release that touches a file this branch edits has to be resolved by
           # hand. Aborting leaves the branch where it is, which is the safe half of
