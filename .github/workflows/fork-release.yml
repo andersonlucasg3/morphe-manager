@@ -54,18 +54,34 @@ jobs:
           _JAVA_OPTIONS: "-Djava.awt.headless=true"
         run: ./gradlew :app:testDebugUnitTest
 
-      - name: Build the release APK
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          _JAVA_OPTIONS: "-Djava.awt.headless=true"
-        run: ./gradlew :app:assembleRelease
-
+      # Resolved before the build, because the version names the APK the updater will be
+      # pointed at: the tag decides the version, and the version decides the file name.
       - name: Resolve the version
         id: version
         run: |
           TAG="${{ inputs.tag || github.ref_name }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the release APK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MORPHE_FORK_VERSION: ${{ steps.version.outputs.version }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:assembleRelease
+
+      # The updater reads a URL built from the version, so the file it names has to be the
+      # file that was built. Asserted rather than assumed: a rename here would otherwise ship
+      # an updater pointing at a 404, which is only discovered by whoever updates next.
+      - name: Assert the built APK is the one the updater will name
+        run: |
+          EXPECTED="app/build/outputs/apk/release/morphe-manager-${{ steps.version.outputs.version }}-release.apk"
+          if [ ! -f "$EXPECTED" ]; then
+            echo "::error::Expected $EXPECTED, which is what app-release.json will point at."
+            ls -la app/build/outputs/apk/release/
+            exit 1
+          fi
+          echo "Built $EXPECTED"
 
       - name: Publish the release
         env:
@@ -76,6 +92,19 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes
+
+      # Confirms the URL the updater will read answers before that URL is published.
+      - name: Assert the asset is downloadable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/morphe-manager-${{ steps.version.outputs.version }}-release.apk"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -L "$URL")
+          echo "$URL -> $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::The updater would be pointed at $URL, which answers $CODE."
+            exit 1
+          fi
 
   # Runs after the APK is downloadable, because the file it writes points at the
   # release asset and an updater that acted on it early would find a 404.
@@ -99,11 +128,21 @@ jobs:
           NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
           CREATED=$(gh release view "$TAG" --repo "$REPO" --json publishedAt --jq .publishedAt)
 
+          # The asset's own name, read from the release rather than rebuilt from the
+          # version. A name this file invents is a name that can be wrong, and the last
+          # one pointed at an APK that was never built.
+          ASSET=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[0].name')
+          if [ -z "$ASSET" ] || [ "$ASSET" = "null" ]; then
+            echo "::error::The release carries no asset to point the updater at."
+            exit 1
+          fi
+          echo "Pointing at asset: $ASSET"
+
           jq -n \
             --arg created "$CREATED" \
             --arg description "$NOTES" \
             --arg version "$VERSION" \
-            --arg download "https://github.com/$REPO/releases/download/$TAG/morphe-manager-$VERSION.apk" \
+            --arg download "https://github.com/$REPO/releases/download/$TAG/$ASSET" \
             '{created_at: $created, description: $description, download_url: $download, version: $version}' \
             > app-release.json
 
