@@ -1,0 +1,119 @@
+name: Release
+
+# This fork's own release: builds the release APK with the committed key, publishes
+# it, and moves app-release.json on main to point at it, which is the file the app's
+# updater reads. Split from upstream's release workflow on purpose, which runs
+# semantic-release, signs a tag with GPG and dispatches a deploy to their website:
+# none of that is available to a fork, and the last of it would be wrong to run.
+#
+# Pushing a version tag is what releases. The tag names both the release and the
+# version, so the two cannot drift.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v1.33.0 (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The tag is what is being released, not whatever branch was pushed
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        uses: burrunan/gradle-cache-action@v3
+
+      # The committed keystore is what signs this, so no secret is configured here.
+      # An app can only update over a build signed by the same certificate, which is
+      # why the key travels with the repository.
+      - name: Verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Build the release APK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:assembleRelease
+
+      - name: Resolve the version
+        id: version
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            app/build/outputs/apk/release/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+  # Runs after the APK is downloadable, because the file it writes points at the
+  # release asset and an updater that acted on it early would find a 404.
+  update-json:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Point app-release.json at the new release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
+          CREATED=$(gh release view "$TAG" --repo "$REPO" --json publishedAt --jq .publishedAt)
+
+          jq -n \
+            --arg created "$CREATED" \
+            --arg description "$NOTES" \
+            --arg version "$VERSION" \
+            --arg download "https://github.com/$REPO/releases/download/$TAG/morphe-manager-$VERSION.apk" \
+            '{created_at: $created, description: $description, download_url: $download, version: $version}' \
+            > app-release.json
+
+          cat app-release.json
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app-release.json
+          git diff --staged --quiet && echo "No change" && exit 0
+          git commit -m "chore: Point the updater at ${{ inputs.tag || github.ref_name }} [skip ci]"
+          git push origin main
