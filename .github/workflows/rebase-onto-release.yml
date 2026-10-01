@@ -1,0 +1,110 @@
+name: Rebase onto the latest release
+
+# Kept on top of upstream's newest release rather than its dev branch, so a build
+# of this fork is the released app plus the in-app APK download and nothing else.
+#
+# Triggered by upstream publishing a release, which is the moment main moves.
+# A fork's own scheduled runs are the fallback, for a release that lands while
+# Actions is off or a dispatch that is missed.
+on:
+  repository_dispatch:
+    types: [upstream-release]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebase-onto-release
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream releases
+        run: |
+          git remote add upstream https://github.com/MorpheApp/morphe-manager.git
+          git fetch upstream main --tags
+
+      - name: Rebase the fork branch onto the latest release
+        id: rebase
+        run: |
+          BRANCH=feat/in-app-apk-download
+          BASE=upstream/main
+
+          BEHIND=$(git rev-list --count "$BRANCH..$BASE")
+          echo "Releases behind: $BEHIND"
+
+          if [ "$BEHIND" = "0" ]; then
+            echo "Already on the latest release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout "$BRANCH"
+
+          # A release that touches a file this branch edits has to be resolved by
+          # hand. Aborting leaves the branch where it is, which is the safe half of
+          # the outcome: a stale branch still builds, a half-resolved one does not.
+          if ! git rebase "$BASE"; then
+            git rebase --abort || true
+            echo "::error::Rebase onto $BASE hit a conflict. Resolve it locally."
+            exit 1
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.rebase.outputs.changed == 'true'
+        run: git push --force-with-lease origin feat/in-app-apk-download
+
+      - name: Check out the rebased branch
+        if: steps.rebase.outputs.changed == 'true'
+        run: git checkout feat/in-app-apk-download
+
+      - name: Setup Java
+        if: steps.rebase.outputs.changed == 'true'
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        if: steps.rebase.outputs.changed == 'true'
+        uses: burrunan/gradle-cache-action@v3
+
+      # A rebase that silently breaks the branch is worse than one that fails, so
+      # the branch is only trusted once it has been built on the release it moved to.
+      - name: Verify the rebase
+        if: steps.rebase.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Rebase onto the latest release"
+            echo
+            if [ "${{ steps.rebase.outputs.changed }}" = "true" ]; then
+              echo "Moved onto \`$(git rev-parse --short upstream/main)\` and verified."
+            else
+              echo "Already on the latest release."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
