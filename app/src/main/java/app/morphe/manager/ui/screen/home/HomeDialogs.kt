@@ -37,6 +37,7 @@ import app.morphe.manager.domain.bundles.PatchBundleSource.Extensions.sourceType
 import app.morphe.manager.domain.bundles.PatchBundleSource.Extensions.usesPrerelease
 import app.morphe.manager.domain.bundles.recommended
 import app.morphe.manager.domain.repository.PatchBundleRepository
+import app.morphe.manager.domain.installer.InstallerFileProvider
 import app.morphe.manager.domain.repository.PatchBundleRepository.LocalFileCheck
 import app.morphe.manager.domain.repository.SourceMuteRepository
 import app.morphe.manager.patcher.patch.PatchBundleInfo
@@ -303,8 +304,8 @@ private fun DialogHostScope.PatchFlowDialog(
                     scope = captureScope,
                     capture = capture,
                     appName = session.appName,
-                ) { uri ->
-                    if (uri == null) {
+                ) { file ->
+                    if (file == null) {
                         // Names the reason while this is being tested. The exception's own message
                         // says more than "it failed" ever could, and reaching an adb console is not
                         // something to ask of whoever is holding the phone
@@ -318,7 +319,12 @@ private fun DialogHostScope.PatchFlowDialog(
                         }
                         return@start
                     }
-                    flow.handleApkSelection(uri)
+                    // Through the ordinary intake, so every check that guards a hand-picked APK
+                    // applies. Handed over as a content URI through the provider the installers
+                    // already use, and then dropped: the intake copies it into a file of its own,
+                    // which would otherwise leave the download behind as a second copy.
+                    flow.handleApkSelection(InstallerFileProvider.getUriForFile(captureContext, file))
+                    ApkCaptureDownloader.release(file)
                 }
             }
 
