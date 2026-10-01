@@ -3,14 +3,15 @@ name: Rebase onto the latest release
 # Kept on top of upstream's newest release rather than its dev branch, so a build
 # of this fork is the released app plus the in-app APK download and nothing else.
 #
-# Triggered by upstream publishing a release, which is the moment main moves.
-# A fork's own scheduled runs are the fallback, for a release that lands while
-# Actions is off or a dispatch that is missed.
+# Nothing tells a fork when upstream releases, so the schedule is what actually
+# catches it: the dispatch below is here for a caller that already watches
+# releases and wants to trigger this one directly. A run that finds nothing to do
+# costs about twenty seconds.
 on:
   repository_dispatch:
     types: [upstream-release]
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
