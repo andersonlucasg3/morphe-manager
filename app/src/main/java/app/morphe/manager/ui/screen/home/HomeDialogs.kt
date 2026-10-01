@@ -44,6 +44,9 @@ import app.morphe.manager.patcher.patch.PatchInfo
 import app.morphe.manager.ui.model.HomeAppItem
 import app.morphe.manager.ui.model.NewSourceOptions
 import app.morphe.manager.ui.model.SourceScope
+import app.morphe.manager.ui.screen.apkdownload.ApkCaptureDownloader
+import app.morphe.manager.ui.screen.apkdownload.ApkDownloadProgressOverlay
+import app.morphe.manager.ui.screen.apkdownload.rememberApkDownloadCaptureAction
 import app.morphe.manager.ui.screen.patcher.UnusableOptionPathsDialog
 import app.morphe.manager.ui.screen.settings.SettingsNavigation
 import app.morphe.manager.ui.screen.settings.SettingsSubpage
@@ -75,6 +78,10 @@ fun HomeDialogs(
     val scope = rememberCoroutineScope()
     val messages = koinInject<UserMessages>()
     val flow = homeViewModel.patchFlow
+
+    // Drawn over every screen in this tree, so a transfer started here stays visible after the
+    // dialog that began it is dismissed
+    ApkDownloadProgressOverlay(onCancel = { ApkCaptureDownloader.cancel() })
 
     // APK selection processing overlay - blocks interaction while APK is loaded/validated in background
     Overlay(visible = flow.processingApkSelection) {
@@ -291,12 +298,12 @@ private fun DialogHostScope.PatchFlowDialog(
                 downloadUrl = session.downloadUrl,
                 appName = session.appName,
             ) { capture ->
-                captureScope.launch {
-                    val uri = ApkCaptureDownloader.download(
-                        context = captureContext,
-                        capture = capture,
-                        appName = session.appName,
-                    )
+                ApkCaptureDownloader.start(
+                    context = captureContext,
+                    scope = captureScope,
+                    capture = capture,
+                    appName = session.appName,
+                ) { uri ->
                     if (uri == null) {
                         // Names the reason while this is being tested. The exception's own message
                         // says more than "it failed" ever could, and reaching an adb console is not
@@ -309,7 +316,7 @@ private fun DialogHostScope.PatchFlowDialog(
                                 captureContext.getString(R.string.apk_capture_download_failed_reason, reason)
                             )
                         }
-                        return@launch
+                        return@start
                     }
                     flow.handleApkSelection(uri)
                 }
