@@ -37,15 +37,25 @@ const val DEFAULT_BUNDLE_FILE = "patches-bundle.json"
 
 const val MORPHE_GITHUB_ORG = "MorpheApp"
 const val MORPHE_GITHUB_URL = "https://$GITHUB_HOST/$MORPHE_GITHUB_ORG"
-const val MANAGER_REPO_URL = "$MORPHE_GITHUB_URL/morphe-manager"
 const val SOURCE_REPO_URL = "$MORPHE_GITHUB_URL/morphe-patches"
 
 const val SOURCE_NAME = "Morphe Patches"
 
+/**
+ * This fork, not upstream.
+ *
+ * The manager updates itself from the release JSON below, so pointing these at upstream would
+ * hand every user an upstream build: one signed by a key this app does not have, which Android
+ * refuses to install over it. The patches stay on upstream, because a fork of the manager is not
+ * a fork of the patches it applies.
+ */
+const val MANAGER_FORK_ORG = "andersonlucasg3"
+const val MANAGER_REPO_URL = "https://$GITHUB_HOST/$MANAGER_FORK_ORG/morphe-manager"
+
 /** Key the releases of [SOURCE_REPO_URL] are signed with, see PatchBundleSignature. */
 const val SOURCE_SIGNING_KEY = "g8Ys9leTu2yeixojeR35HrNkK6eOSLpA6nNIizRutqI="
 
-private const val MANAGER_RAW_URL = "https://$GITHUB_RAW_HOST/$MORPHE_GITHUB_ORG/morphe-manager/refs/heads"
+private const val MANAGER_RAW_URL = "https://$GITHUB_RAW_HOST/$MANAGER_FORK_ORG/morphe-manager/refs/heads"
 
 /** Raw GitHub URL for the stable manager release JSON (main branch). */
 const val MANAGER_RELEASE_JSON_URL = "$MANAGER_RAW_URL/main/app-release.json"
