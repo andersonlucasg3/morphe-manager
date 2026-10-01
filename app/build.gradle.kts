@@ -153,7 +153,12 @@ android {
         applicationId = "app.morphe.manager"
         minSdk = 26
 
-        versionName = version.toString()
+        // A fork release passes the version its tag names, so the version in the app, the name
+        // of the APK and the URL an updater reads all come from that one value. Left to derive
+        // the name from the release file alone, the updater would point at a file that was never
+        // built: the APK is named after this, not after the tag.
+        versionName = System.getenv("MORPHE_FORK_VERSION")?.takeIf { it.isNotBlank() }
+            ?: version.toString()
 
         // VersionCode derived from current time (1-minute intervals) + offset.
         val nowMillis = System.currentTimeMillis()
