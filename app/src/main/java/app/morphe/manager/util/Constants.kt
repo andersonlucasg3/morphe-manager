@@ -15,7 +15,16 @@ import kotlin.time.Duration.Companion.minutes
 const val tag = "Morphe Manager"
 
 const val SOURCE_NAME = "Morphe Patches"
-const val MANAGER_REPO_URL = "https://github.com/MorpheApp/morphe-manager"
+
+/**
+ * This fork, not upstream.
+ *
+ * The manager updates itself from the release JSON below, so pointing these at upstream would
+ * hand every user an upstream build: one signed by a key this app does not have, which Android
+ * refuses to install over it. The patches stay on upstream, because a fork of the manager is not
+ * a fork of the patches it applies.
+ */
+const val MANAGER_REPO_URL = "https://github.com/andersonlucasg3/morphe-manager"
 const val SOURCE_REPO_URL = "https://github.com/MorpheApp/morphe-patches"
 
 /** Key the releases of [SOURCE_REPO_URL] are signed with, see PatchBundleSignature. */
@@ -35,10 +44,10 @@ const val ADD_SOURCE_PATH = "/add-source"
 const val REMOTE_URL_PLACEHOLDER = "github.com/owner/repo"
 
 /** Raw GitHub URL for the stable manager release JSON (main branch) */
-const val MANAGER_RELEASE_JSON_URL = "https://raw.githubusercontent.com/MorpheApp/morphe-manager/refs/heads/main/app-release.json"
+const val MANAGER_RELEASE_JSON_URL = "https://raw.githubusercontent.com/andersonlucasg3/morphe-manager/refs/heads/main/app-release.json"
 
 /** Raw GitHub URL for the pre-release manager release JSON (dev branch) */
-const val MANAGER_PRERELEASE_JSON_URL = "https://raw.githubusercontent.com/MorpheApp/morphe-manager/refs/heads/dev/app-release.json"
+const val MANAGER_PRERELEASE_JSON_URL = "https://raw.githubusercontent.com/andersonlucasg3/morphe-manager/refs/heads/dev/app-release.json"
 
 /** Controls whether manager updates are fetched directly from JSON files in the repository instead of using the GitHub API */
 const val USE_MANAGER_DIRECT_JSON = true

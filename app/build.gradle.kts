@@ -3,6 +3,14 @@ import org.gradle.api.tasks.testing.logging.TestLogEvent
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import kotlin.random.Random
 
+/**
+ * Signing key this fork's releases are built with, committed alongside it so its CI can sign
+ * without a secret and every release keeps one identity. Not a secret in any meaningful sense:
+ * it exists so the app can update itself, and anyone can rebuild this fork.
+ */
+val FORK_KEYSTORE_PASSWORD = "android"
+val FORK_KEY_ALIAS = "morphe-fork"
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.serialization)
@@ -288,9 +296,14 @@ android {
             } else {
                 signingConfigs.create("release") {
                     storeFile = keystoreFile
-                    storePassword = System.getenv("KEYSTORE_PASSWORD")
-                    keyAlias = System.getenv("KEYSTORE_ENTRY_ALIAS")
-                    keyPassword = System.getenv("KEYSTORE_ENTRY_PASSWORD")
+                    // This fork releases itself, so the key it is signed with has to be stable
+                    // and available to its own CI, and it is committed here for that reason.
+                    // An app only updates over another with the same certificate, which a key
+                    // held in a secret could not guarantee across a fork anyone can rebuild.
+                    // The environment wins where one is set, so a secret can still override it.
+                    storePassword = System.getenv("KEYSTORE_PASSWORD") ?: FORK_KEYSTORE_PASSWORD
+                    keyAlias = System.getenv("KEYSTORE_ENTRY_ALIAS") ?: FORK_KEY_ALIAS
+                    keyPassword = System.getenv("KEYSTORE_ENTRY_PASSWORD") ?: FORK_KEYSTORE_PASSWORD
                 }
             }
 
