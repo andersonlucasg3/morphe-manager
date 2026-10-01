@@ -1,4 +1,4 @@
-name: Release
+name: Release this fork
 
 # This fork's own release: builds the release APK with the committed key, publishes
 # it, and moves app-release.json on main to point at it, which is the file the app's
