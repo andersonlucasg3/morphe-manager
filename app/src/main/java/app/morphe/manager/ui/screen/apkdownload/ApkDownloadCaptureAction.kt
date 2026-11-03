@@ -12,7 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import app.morphe.manager.R
-import app.morphe.manager.util.toast
+import app.morphe.manager.ui.screen.shared.UserMessages
+import org.koin.compose.koinInject
 
 /**
  * The action that opens a download page in the capture WebView, or null while no page is known.
@@ -32,13 +33,14 @@ fun rememberApkDownloadCaptureAction(
     onCaptured: (ApkDownloadCapture) -> Unit,
 ): (() -> Unit)? {
     val context = LocalContext.current
+    val messages: UserMessages = koinInject()
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val capture = ApkDownloadCaptureActivity.captureFrom(result.resultCode, result.data)
         if (capture == null) {
-            context.toast(context.getString(R.string.apk_capture_cancelled))
+            messages.show(R.string.apk_capture_cancelled)
             return@rememberLauncherForActivityResult
         }
         onCaptured(capture)
