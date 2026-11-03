@@ -11,6 +11,17 @@ import kotlin.random.Random
 val FORK_KEYSTORE_PASSWORD = "android"
 val FORK_KEY_ALIAS = "morphe-fork"
 
+/**
+ * Version this build ships, which a fork release takes from the tag it was cut at.
+ *
+ * Resolved once because two things are named after it and they have to agree: `versionName`,
+ * which the app reports and compares to decide whether an update exists, and the APK file,
+ * which the updater is pointed at by name. Naming only one of them leaves the update URL
+ * pointing at a file that was never built.
+ */
+val releaseVersion = System.getenv("MORPHE_FORK_VERSION")?.takeIf { it.isNotBlank() }
+    ?: version.toString()
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.serialization)
@@ -242,7 +253,7 @@ android {
         applicationId = "app.morphe.manager"
         minSdk = 26
 
-        versionName = version.toString()
+        versionName = releaseVersion
 
         // VersionCode derived from current time (1-minute intervals) + offset.
         val nowMillis = System.currentTimeMillis()
@@ -402,9 +413,11 @@ android {
     }
 }
 
-// APK output file name
+// APK output file name, from the same value the version name comes from: the updater is
+// pointed at this file by name, so a name built from a different version is a file that is
+// announced and never built.
 base.archivesName.set(provider {
-    "${rootProject.name}-$version"
+    "${rootProject.name}-$releaseVersion"
 })
 
 ksp {
