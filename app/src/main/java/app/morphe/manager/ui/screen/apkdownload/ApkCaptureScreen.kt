@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +24,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import app.morphe.manager.R
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.Close
 
 /**
  * Holds the capture WebView, with the one instruction the flow needs: the file is taken
@@ -53,7 +53,7 @@ fun ApkCaptureScreen(
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = MaterialSymbols.Rounded.Close,
                             contentDescription = stringResource(R.string.apk_capture_cancel),
                         )
                     }

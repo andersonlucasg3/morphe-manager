@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.rounded.Close
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -124,7 +124,7 @@ fun ApkDownloadProgressOverlay(onCancel: () -> Unit) {
             AppDialogButton(
                 text = stringResource(R.string.apk_capture_cancel),
                 onClick = onCancel,
-                icon = Icons.Default.Close,
+                icon = MaterialSymbols.Rounded.Close,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
