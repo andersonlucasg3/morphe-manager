@@ -32,9 +32,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # The tag is what is being released, not whatever branch was pushed
-          ref: ${{ inputs.tag || github.ref }}
+          # The product is this branch, not the commit the tag names. A tag can only
+          # trigger a workflow that exists in the tagged commit, and this workflow lives on
+          # main, which carries nothing but the fork's plumbing. The tag names the version;
+          # the branch is what is built and published.
+          ref: feat/in-app-apk-download
           fetch-depth: 0
+
+      # Recorded so a build can be traced back to the commit it came from, since the branch
+      # moves on its own and a release is otherwise tied to nothing visible
+      - name: Note the commit being released
+        run: |
+          echo "Building $(git rev-parse HEAD) from feat/in-app-apk-download"
+          echo "### Released commit" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$(git rev-parse --short HEAD)\` on \`feat/in-app-apk-download\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Java
         uses: actions/setup-java@v6
