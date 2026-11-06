@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +36,6 @@ import app.morphe.manager.domain.bundles.PatchBundleSource.Extensions.sourceType
 import app.morphe.manager.domain.bundles.PatchBundleSource.Extensions.usesPrerelease
 import app.morphe.manager.domain.bundles.recommended
 import app.morphe.manager.domain.repository.PatchBundleRepository
-import app.morphe.manager.domain.installer.InstallerFileProvider
 import app.morphe.manager.domain.repository.PatchBundleRepository.LocalFileCheck
 import app.morphe.manager.domain.repository.SourceMuteRepository
 import app.morphe.manager.patcher.patch.PatchBundleInfo
@@ -45,9 +43,8 @@ import app.morphe.manager.patcher.patch.PatchInfo
 import app.morphe.manager.ui.model.HomeAppItem
 import app.morphe.manager.ui.model.NewSourceOptions
 import app.morphe.manager.ui.model.SourceScope
-import app.morphe.manager.ui.screen.apkdownload.ApkCaptureDownloader
-import app.morphe.manager.ui.screen.apkdownload.ApkDownloadProgressOverlay
-import app.morphe.manager.ui.screen.apkdownload.rememberApkDownloadCaptureAction
+import app.morphe.manager.ui.screen.apkdownload.ApkDownloadProgressHost
+import app.morphe.manager.ui.screen.apkdownload.rememberInAppApkDownload
 import app.morphe.manager.ui.screen.patcher.UnusableOptionPathsDialog
 import app.morphe.manager.ui.screen.settings.SettingsNavigation
 import app.morphe.manager.ui.screen.settings.SettingsSubpage
@@ -80,9 +77,8 @@ fun HomeDialogs(
     val messages = koinInject<UserMessages>()
     val flow = homeViewModel.patchFlow
 
-    // Drawn over every screen in this tree, so a transfer started here stays visible after the
-    // dialog that began it is dismissed
-    ApkDownloadProgressOverlay(onCancel = { ApkCaptureDownloader.cancel() })
+    // Kept out of the dialog that starts a transfer, which closes long before it finishes
+    ApkDownloadProgressHost()
 
     // APK selection processing overlay - blocks interaction while APK is loaded/validated in background
     Overlay(visible = flow.processingApkSelection) {
@@ -289,44 +285,13 @@ private fun DialogHostScope.PatchFlowDialog(
             val bundleMetadata by homeViewModel.bundleAppMetadataFlow.collectAsStateWithLifecycle()
             val metadata = session.packageName?.let { bundleMetadata[it] }
 
-            // Opens the page in the capture WebView and feeds the file it takes back through the
-            // same intake a hand-picked APK goes through, so every check that guards a manual
-            // selection still applies to one this app fetched itself.
-            val captureContext = LocalContext.current
-            val captureMessages: UserMessages = koinInject()
-            val captureScope = rememberCoroutineScope()
-            val captureApkInApp = rememberApkDownloadCaptureAction(
+            // The whole in-app download lives in its own package; this names the app and the
+            // page, and says where a fetched archive goes
+            val captureApkInApp = rememberInAppApkDownload(
                 downloadUrl = session.downloadUrl,
                 appName = session.appName,
-            ) { capture ->
-                ApkCaptureDownloader.start(
-                    context = captureContext,
-                    scope = captureScope,
-                    capture = capture,
-                    appName = session.appName,
-                ) { file ->
-                    if (file == null) {
-                        // Names the reason while this is being tested. The exception's own message
-                        // says more than "it failed" ever could, and reaching an adb console is not
-                        // something to ask of whoever is holding the phone
-                        val reason = ApkCaptureDownloader.lastError
-                        if (reason.isNullOrBlank()) {
-                            captureMessages.show(R.string.apk_capture_download_failed)
-                        } else {
-                            captureMessages.show(
-                                captureContext.getString(R.string.apk_capture_download_failed_reason, reason)
-                            )
-                        }
-                        return@start
-                    }
-                    // Through the ordinary intake, so every check that guards a hand-picked APK
-                    // applies. Handed over as a content URI through the provider the installers
-                    // already use, and then dropped: the intake copies it into a file of its own,
-                    // which would otherwise leave the download behind as a second copy.
-                    flow.handleApkSelection(InstallerFileProvider.getUriForFile(captureContext, file))
-                    ApkCaptureDownloader.release(file)
-                }
-            }
+                onApkReady = flow::handleApkSelection,
+            )
 
             DownloadInstructionsDialog(
                 appName = session.appName,
