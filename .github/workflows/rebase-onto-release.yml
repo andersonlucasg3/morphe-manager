@@ -1,0 +1,139 @@
+name: Rebase onto the latest release
+
+# Kept on top of upstream's newest release rather than its dev branch, so a build
+# of this fork is the released app plus the in-app APK download and nothing else.
+#
+# Nothing tells a fork when upstream releases, so the schedule is what actually
+# catches it: the dispatch below is here for a caller that already watches
+# releases and wants to trigger this one directly. A run that finds nothing to do
+# costs about twenty seconds.
+on:
+  repository_dispatch:
+    types: [upstream-release]
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebase-onto-release
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # checkout fetches only the branch it was asked for, so the fork branch has to be
+      # named here or it is not in the working tree for the rebase below
+      - name: Fetch the fork branch and upstream releases
+        run: |
+          git fetch origin feat/in-app-apk-download
+          git remote add upstream https://github.com/MorpheApp/morphe-manager.git
+          git fetch upstream main --tags
+
+      - name: Rebase the fork branch onto the latest release
+        id: rebase
+        run: |
+          BRANCH=origin/feat/in-app-apk-download
+          BASE=upstream/main
+
+          BEHIND=$(git rev-list --count "$BRANCH..$BASE")
+          echo "Releases behind: $BEHIND"
+
+          if [ "$BEHIND" = "0" ]; then
+            echo "Already on the latest release."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # --onto rather than a plain rebase: the branch is pinned to whatever the
+          # release was when it was last moved, and everything above that is ours
+          git checkout -B feat/in-app-apk-download "$BRANCH"
+
+          # A release that touches a file this branch edits has to be resolved by
+          # hand. Aborting leaves the branch where it is, which is the safe half of
+          # the outcome: a stale branch still builds, a half-resolved one does not.
+          if ! git rebase "$BASE"; then
+            git rebase --abort || true
+            echo "::error::Rebase onto $BASE hit a conflict. Resolve it locally."
+            exit 1
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.rebase.outputs.changed == 'true'
+        run: git push --force-with-lease origin feat/in-app-apk-download
+
+      - name: Check out the rebased branch
+        if: steps.rebase.outputs.changed == 'true'
+        run: git checkout feat/in-app-apk-download
+
+      - name: Setup Java
+        if: steps.rebase.outputs.changed == 'true'
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        if: steps.rebase.outputs.changed == 'true'
+        uses: burrunan/gradle-cache-action@v3
+
+      # A rebase that silently breaks the branch is worse than one that fails, so
+      # the branch is only trusted once it has been built on the release it moved to.
+      - name: Verify the rebase
+        if: steps.rebase.outputs.changed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      # main has to follow the release as well, or a clone of this fork is an old release
+      # wearing its name. It is rebuilt on the release rather than rebased onto it: main owns
+      # nothing but the two workflows and the JSON the app updates from, so there is nothing
+      # here for a release to conflict with. Runs even when the branch needed no move, which is
+      # exactly the case that left main behind before.
+      - name: Move main onto the same release
+        run: |
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "main already contains $(git rev-parse --short upstream/main)."
+            exit 0
+          fi
+
+          git fetch origin main
+          git checkout -B main upstream/main
+          # The paths are named rather than discovered, so a rename fails here instead of
+          # silently dropping one of them from main
+          git checkout origin/main -- \
+            .github/workflows/fork-release.yml \
+            .github/workflows/rebase-onto-release.yml \
+            app-release.json
+          git commit -m "chore: Follow upstream $(git rev-parse --short upstream/main) [skip ci]"
+          git push origin main
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Rebase onto the latest release"
+            echo
+            if [ "${{ steps.rebase.outputs.changed }}" = "true" ]; then
+              echo "Moved onto \`$(git rev-parse --short upstream/main)\` and verified."
+            else
+              echo "Already on the latest release."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

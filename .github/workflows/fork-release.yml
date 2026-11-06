@@ -1,0 +1,169 @@
+name: Release this fork
+
+# This fork's own release: builds the release APK with the committed key, publishes
+# it, and moves app-release.json on main to point at it, which is the file the app's
+# updater reads. Split from upstream's release workflow on purpose, which runs
+# semantic-release, signs a tag with GPG and dispatches a deploy to their website:
+# none of that is available to a fork, and the last of it would be wrong to run.
+#
+# Pushing a version tag is what releases. The tag names both the release and the
+# version, so the two cannot drift.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v1.33.0 (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The product is this branch, not the commit the tag names. A tag can only
+          # trigger a workflow that exists in the tagged commit, and this workflow lives on
+          # main, which carries nothing but the fork's plumbing. The tag names the version;
+          # the branch is what is built and published.
+          ref: feat/in-app-apk-download
+          fetch-depth: 0
+
+      # Recorded so a build can be traced back to the commit it came from, since the branch
+      # moves on its own and a release is otherwise tied to nothing visible
+      - name: Note the commit being released
+        run: |
+          echo "Building $(git rev-parse HEAD) from feat/in-app-apk-download"
+          echo "### Released commit" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$(git rev-parse --short HEAD)\` on \`feat/in-app-apk-download\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        uses: burrunan/gradle-cache-action@v3
+
+      # The committed keystore is what signs this, so no secret is configured here.
+      # An app can only update over a build signed by the same certificate, which is
+      # why the key travels with the repository.
+      - name: Verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:testDebugUnitTest
+
+      # Resolved before the build, because the version names the APK the updater will be
+      # pointed at: the tag decides the version, and the version decides the file name.
+      - name: Resolve the version
+        id: version
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the release APK
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MORPHE_FORK_VERSION: ${{ steps.version.outputs.version }}
+          _JAVA_OPTIONS: "-Djava.awt.headless=true"
+        run: ./gradlew :app:assembleRelease
+
+      # The updater reads a URL built from the version, so the file it names has to be the
+      # file that was built. Asserted rather than assumed: a rename here would otherwise ship
+      # an updater pointing at a 404, which is only discovered by whoever updates next.
+      - name: Assert the built APK is the one the updater will name
+        run: |
+          EXPECTED="app/build/outputs/apk/release/morphe-manager-${{ steps.version.outputs.version }}-release.apk"
+          if [ ! -f "$EXPECTED" ]; then
+            echo "::error::Expected $EXPECTED, which is what app-release.json will point at."
+            ls -la app/build/outputs/apk/release/
+            exit 1
+          fi
+          echo "Built $EXPECTED"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            app/build/outputs/apk/release/*.apk \
+            --repo "${{ github.repository }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+
+      # Confirms the URL the updater will read answers before that URL is published.
+      - name: Assert the asset is downloadable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/morphe-manager-${{ steps.version.outputs.version }}-release.apk"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -L "$URL")
+          echo "$URL -> $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::The updater would be pointed at $URL, which answers $CODE."
+            exit 1
+          fi
+
+  # Runs after the APK is downloadable, because the file it writes points at the
+  # release asset and an updater that acted on it early would find a 404.
+  update-json:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Point app-release.json at the new release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
+
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
+          CREATED=$(gh release view "$TAG" --repo "$REPO" --json publishedAt --jq .publishedAt)
+
+          # The asset's own name, read from the release rather than rebuilt from the
+          # version. A name this file invents is a name that can be wrong, and the last
+          # one pointed at an APK that was never built.
+          ASSET=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[0].name')
+          if [ -z "$ASSET" ] || [ "$ASSET" = "null" ]; then
+            echo "::error::The release carries no asset to point the updater at."
+            exit 1
+          fi
+          echo "Pointing at asset: $ASSET"
+
+          jq -n \
+            --arg created "$CREATED" \
+            --arg description "$NOTES" \
+            --arg version "$VERSION" \
+            --arg download "https://github.com/$REPO/releases/download/$TAG/$ASSET" \
+            '{created_at: $created, description: $description, download_url: $download, version: $version}' \
+            > app-release.json
+
+          cat app-release.json
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app-release.json
+          git diff --staged --quiet && echo "No change" && exit 0
+          git commit -m "chore: Point the updater at ${{ inputs.tag || github.ref_name }} [skip ci]"
+          git push origin main
