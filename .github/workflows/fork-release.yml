@@ -104,6 +104,13 @@ jobs:
           fi
           echo "Built $EXPECTED"
 
+      # An annotated tag records who made it, and this job does not inherit the identity the
+      # calling workflow configured, so it is set here before the tag is created
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       # The tag is put on the commit that was built. Left to `gh release create`, a tag that
       # does not exist yet is created at the default branch, which is main: the release would
       # then point at plumbing rather than at the build it was cut from.
