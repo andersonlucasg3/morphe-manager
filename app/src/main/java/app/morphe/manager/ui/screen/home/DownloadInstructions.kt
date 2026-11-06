@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.morphe.manager.R
+import app.morphe.manager.ui.screen.apkdownload.inAppDownloadAction
 import app.morphe.manager.domain.manager.ApkDownloadSource
 import app.morphe.manager.ui.screen.shared.*
 import app.morphe.manager.ui.theme.isDarkTheme
@@ -270,16 +271,7 @@ internal fun DialogHostScope.DownloadInstructionsDialog(
         footer = {
             AppDialogActions(
                 actions = listOfNotNull(
-                    // Leading, because it is the one that finishes the job inside Morphe: every
-                    // action after it hands the user off to a browser or to another app
-                    if (onCaptureApkInApp != null) {
-                        DialogAction(
-                            text = stringResource(R.string.home_download_instructions_in_app),
-                            onClick = { onCaptureApkInApp.invoke() },
-                            icon = MaterialSymbols.Rounded.Download,
-                            enabled = !resolving
-                        )
-                    } else null,
+                    onCaptureApkInApp?.let { inAppDownloadAction(it, enabled = !resolving) },
                     DialogAction(
                         text = continueText,
                         onClick = openLink,
