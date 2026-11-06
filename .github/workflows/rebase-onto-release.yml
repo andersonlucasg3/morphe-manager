@@ -47,6 +47,26 @@ jobs:
           git remote add upstream https://github.com/MorpheApp/morphe-manager.git
           git fetch upstream main --tags
 
+      # The release this fork follows, read from upstream's tags rather than from a branch or
+      # from a version in the tree: a tag is the point a version became a release, and it is the
+      # one thing here that needs no interpretation. Prereleases carry a suffix (-dev.3 and the
+      # like) and are deliberately not followed, because this fork ships releases.
+      #
+      # Only its version is used. Rebasing onto the tag instead of the branch would be wrong: a
+      # release tag sits a commit or two behind the branch, so rebasing onto it would replay
+      # upstream's own trailing commits as if they were this fork's.
+      - name: Resolve the latest upstream release
+        id: release
+        run: |
+          TAG=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ -z "$TAG" ]; then
+            echo "::error::Upstream has no stable release tag to follow."
+            exit 1
+          fi
+          echo "Latest upstream release: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - name: Rebase the fork branch onto the latest release
         id: rebase
         run: |
@@ -54,10 +74,10 @@ jobs:
           BASE=upstream/main
 
           BEHIND=$(git rev-list --count "$BRANCH..$BASE")
-          echo "Releases behind: $BEHIND"
+          echo "Commits behind upstream: $BEHIND"
 
           if [ "$BEHIND" = "0" ]; then
-            echo "Already on the latest release."
+            echo "Already up to date."
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -131,9 +151,12 @@ jobs:
       # Absorbing a release and leaving it unpublished is the gap this closes. Decided here and
       # published by the reusable workflow below, because a tag pushed with the repository token
       # starts no workflow of its own. Runs whether or not the branch just moved: the release is
-      # owed per version, not per rebase, so a version absorbed by an earlier run is still owed.
-      - name: Decide whether this version still needs publishing
+      # owed per upstream tag, not per rebase, so a tag absorbed by an earlier run is still owed.
+      - name: Decide whether this release still needs publishing
         id: publish
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           BRANCH=feat/in-app-apk-download
           # The branch only exists locally when the rebase step created it
@@ -143,14 +166,15 @@ jobs:
             REF="origin/$BRANCH"
           fi
 
-          VERSION=$(git show "$REF:app/gradle.properties" | sed -n 's/^version *= *//p' | tr -d '\r')
-          if [ -z "$VERSION" ]; then
-            echo "::error::Could not read the version from $REF:app/gradle.properties"
-            exit 1
+          # A version is released only once the code carrying it is in the branch, so a tag
+          # that appeared while a rebase was still pending is not published ahead of it
+          if ! git merge-base --is-ancestor "refs/tags/$RELEASE_TAG" "$REF"; then
+            echo "The branch has not taken $RELEASE_TAG yet."
+            exit 0
           fi
 
           TAG="v${VERSION}-fork.1"
-          echo "Branch is on $VERSION, which would be released as $TAG"
+          echo "Upstream release $RELEASE_TAG would be published as $TAG"
 
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "$TAG is already published."
@@ -165,10 +189,13 @@ jobs:
           {
             echo "### Rebase onto the latest release"
             echo
+            if [ -n "${{ steps.release.outputs.tag }}" ]; then
+              echo "Latest upstream release: \`${{ steps.release.outputs.tag }}\`"
+            fi
             if [ "${{ steps.rebase.outputs.changed }}" = "true" ]; then
-              echo "Moved onto \`$(git rev-parse --short upstream/main)\` and verified."
+              echo "The branch was moved onto it and verified."
             else
-              echo "Already on the latest release."
+              echo "The branch already contains it."
             fi
             if [ -n "${{ steps.publish.outputs.tag }}" ]; then
               echo
