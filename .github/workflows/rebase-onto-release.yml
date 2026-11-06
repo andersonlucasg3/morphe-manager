@@ -24,6 +24,9 @@ concurrency:
 jobs:
   rebase:
     runs-on: ubuntu-latest
+    outputs:
+      # Empty when the release this branch sits on has already been published
+      tag: ${{ steps.publish.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -125,6 +128,37 @@ jobs:
           git commit -m "chore: Follow upstream $(git rev-parse --short upstream/main) [skip ci]"
           git push origin main
 
+      # Absorbing a release and leaving it unpublished is the gap this closes. Decided here and
+      # published by the reusable workflow below, because a tag pushed with the repository token
+      # starts no workflow of its own. Runs whether or not the branch just moved: the release is
+      # owed per version, not per rebase, so a version absorbed by an earlier run is still owed.
+      - name: Decide whether this version still needs publishing
+        id: publish
+        run: |
+          BRANCH=feat/in-app-apk-download
+          # The branch only exists locally when the rebase step created it
+          if git rev-parse --verify --quiet "$BRANCH" >/dev/null; then
+            REF="$BRANCH"
+          else
+            REF="origin/$BRANCH"
+          fi
+
+          VERSION=$(git show "$REF:app/gradle.properties" | sed -n 's/^version *= *//p' | tr -d '\r')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not read the version from $REF:app/gradle.properties"
+            exit 1
+          fi
+
+          TAG="v${VERSION}-fork.1"
+          echo "Branch is on $VERSION, which would be released as $TAG"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already published."
+            exit 0
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Summary
         if: always()
         run: |
@@ -136,4 +170,18 @@ jobs:
             else
               echo "Already on the latest release."
             fi
+            if [ -n "${{ steps.publish.outputs.tag }}" ]; then
+              echo
+              echo "Publishing \`${{ steps.publish.outputs.tag }}\`."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: rebase
+    if: needs.rebase.outputs.tag != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/fork-release.yml
+    with:
+      tag: ${{ needs.rebase.outputs.tag }}
+    secrets: inherit

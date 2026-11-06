@@ -6,8 +6,12 @@ name: Release this fork
 # semantic-release, signs a tag with GPG and dispatches a deploy to their website:
 # none of that is available to a fork, and the last of it would be wrong to run.
 #
-# Pushing a version tag is what releases. The tag names both the release and the
-# version, so the two cannot drift.
+# Pushing a version tag is what releases, and the tag names both the release and the
+# version so the two cannot drift.
+#
+# It is also callable, because the rebase workflow has to publish the release it just
+# absorbed and cannot do it by pushing a tag: a push made with the repository token
+# deliberately starts no workflow of its own.
 on:
   push:
     tags:
@@ -15,8 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release, e.g. v1.33.0 (must already exist)'
+        description: 'Tag to release, e.g. v2.5.0-fork.1 (created if it does not exist)'
         required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to release, created at the branch commit if it does not exist'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -93,6 +103,19 @@ jobs:
             exit 1
           fi
           echo "Built $EXPECTED"
+
+      # The tag is put on the commit that was built. Left to `gh release create`, a tag that
+      # does not exist yet is created at the default branch, which is main: the release would
+      # then point at plumbing rather than at the build it was cut from.
+      - name: Tag the built commit
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists at $(git rev-parse --short "refs/tags/$TAG^{commit}")."
+            exit 0
+          fi
+          git tag -a "$TAG" -m "Fork release ${{ steps.version.outputs.version }}"
+          git push origin "refs/tags/$TAG"
 
       - name: Publish the release
         env:
