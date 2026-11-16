@@ -468,10 +468,16 @@ class ReleaseAPI(
 
         // Return only if the remote version is strictly newer than what's installed. The stable
         // channel offers stable builds alone: merging dev into main carries the dev release file
-        // along, and it stays there until the stable release replaces it
-        val update = candidate.takeIf {
-            (usePrereleases || !it.version.contains('-')) &&
-                    isNewerVersion(BuildConfig.VERSION_NAME, it.version)
+        // along, and it stays there until the stable release replaces it.
+        //
+        // A build of this fork is a stable release that carries a suffix to keep it apart from
+        // upstream's numbering, so the dash in it must not read as a prerelease here: without
+        // this, no build of this fork is ever offered as an update to another.
+        val update = candidate.takeIf { asset ->
+            val isPreRelease = asset.version.contains('-') &&
+                    !asset.version.contains(FORK_RELEASE_MARKER)
+            (usePrereleases || !isPreRelease) &&
+                    isNewerVersion(BuildConfig.VERSION_NAME, asset.version)
         } ?: return AppUpdateCheck.UpToDate
 
         // Only a definitive "not there" hides the update: a check that could not run at all

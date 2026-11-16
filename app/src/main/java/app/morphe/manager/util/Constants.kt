@@ -52,6 +52,16 @@ const val SOURCE_NAME = "Morphe Patches"
 const val MANAGER_FORK_ORG = "andersonlucasg3"
 const val MANAGER_REPO_URL = "https://$GITHUB_HOST/$MANAGER_FORK_ORG/morphe-manager"
 
+/**
+ * What a release of this fork is versioned with, as in `2.7.1-fork.1`.
+ *
+ * The dash makes it read as a prerelease to anything comparing versions, and to the channel
+ * filter in [app.morphe.manager.network.api.ReleaseAPI] in particular, which keeps prereleases
+ * off the stable channel. That filter exists to keep upstream's `-dev` builds away from stable
+ * users; a build of this fork is not one of those, so the marker is what tells the two apart.
+ */
+const val FORK_RELEASE_MARKER = "-fork."
+
 /** Key the releases of [SOURCE_REPO_URL] are signed with, see PatchBundleSignature. */
 const val SOURCE_SIGNING_KEY = "g8Ys9leTu2yeixojeR35HrNkK6eOSLpA6nNIizRutqI="
 
